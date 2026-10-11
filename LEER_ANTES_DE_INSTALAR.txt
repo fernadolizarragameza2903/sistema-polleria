@@ -1,0 +1,35 @@
+===========================================================
+  GUIA DE INSTALACION RAPIDA - SISTEMA DE POLLERIA MERN
+===========================================================
+
+Bienvenido al asistente de instalacion facil para Windows.
+
+PASOS PREVIOS:
+1. Asegurate de tener instalado Node.js en tu equipo (Recomendado v18+). Puedes descargarlo desde nodejs.org
+2. Es necesario un motor de base de datos MySQL encendido. Te recomendamos instalar XAMPP o Laragon y darle clic a "Start" en el servicio de MySQL.
+
+
+INSTALACION EN 3 CLICS:
+He preparado 3 archivos ejecutables (.bat) que haran todo el trabajo tedioso por ti de manera automatica. 
+
+SIMPLEMENTE HAZ DOBLE CLIC SOBRE ELLOS EN EL SIGUIENTE ORDEN:
+
+Paso 1: Ejecuta `1_Instalar_Dependencias.bat`
+  Esto descargara todos los paquetes necesarios de internet tanto para el "servidor" oculto, como para la interfaz visual. Espera a que termine.
+
+Paso 2: Ejecuta `2_Configurar_Base_Datos.bat`
+  Esto leeria el archivo .sql adjunto y creara de manera oculta todas las tablas (productos, usuarios, ventas, etc.) dentro de tu programa MySQL recien instalado.
+
+Paso 3: Ejecuta `3_Iniciar_Sistema.bat` 
+  Cada dia que quieras usar tu sistema, solo dale doble clic a este archivo. Abrira automaticamente dos consolas negras que mueven el motor interno, e inmediatamente abrira tu navegador en la pantalla del Punto de Venta (http://localhost:5173).
+
+
+INFORMACION DE INGRESO:
+Una vez frente a la pantalla de Acceso, usa las siguientes credenciales administrativas:
+  - Correo: admin@polleria.com
+  - Clave:  admin
+
+
+--
+Soporte: Para poder cambiar el puerto de la base de datos o contrasenas complejas de produccion, revisar el archivo "server/src/config/db.js"
+===========================================================

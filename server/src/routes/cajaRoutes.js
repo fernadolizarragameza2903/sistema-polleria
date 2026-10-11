@@ -1,0 +1,10 @@
+const router = require('express').Router();
+const c = require('../controllers/cajaController');
+const auth = require('../middlewares/auth');
+router.get('/', auth, c.getHistorial);
+router.get('/activa', auth, c.getCajaActiva);
+router.get('/egresos', auth, c.getEgresos);
+router.post('/abrir', auth, c.abrir);
+router.post('/egresos', auth, c.egresarDeCaja);
+router.put('/:id/cerrar', auth, c.cerrar);
+module.exports = router;
