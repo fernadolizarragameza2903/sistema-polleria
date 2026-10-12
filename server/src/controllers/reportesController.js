@@ -1,27 +1,24 @@
 const { Venta, DetalleVenta, Producto, Compra, DetalleCompra, Cliente, sequelize } = require('../models');
 const { Op } = require('sequelize');
+const { obtenerVentasDiarias } = require('../services/ventasDiariasService');
+const { resolverRango, rangoUTC, fechaLocal, sumarDias } = require('../helpers/fechasNegocio');
+
+// Rango por defecto de rentabilidad y clientes top: desde el día 1 del mes en curso.
+const inicioDeMes = () => `${fechaLocal().slice(0, 8)}01`;
 
 const getResumenGeneral = async (req, res) => {
     try {
-        const { desde, hasta } = req.query;
-        const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
-        const fin = new Date(); fin.setHours(23, 59, 59, 999);
-        const f1 = desde ? new Date(desde) : hoy;
-        const f2 = hasta ? new Date(hasta + 'T23:59:59') : fin;
+        // Fechas interpretadas en hora local del negocio (no UTC ni hora del servidor).
+        const rango = resolverRango(req.query);
+        const { inicio: f1, fin: f2 } = rangoUTC(rango.desde, rango.hasta);
 
-        const [totalVentas, ventasPorDia, topProductos, ventasPorMetodo] = await Promise.all([
+        const [totalVentas, diarias, topProductos, ventasPorMetodo] = await Promise.all([
             Venta.findAll({
                 where: { created_at: { [Op.between]: [f1, f2] }, estado: 'completada' },
                 attributes: [[sequelize.fn('SUM', sequelize.col('total')), 'total_sum'], [sequelize.fn('COUNT', sequelize.col('id')), 'count']],
                 raw: true,
             }),
-            Venta.findAll({
-                where: { created_at: { [Op.between]: [f1, f2] }, estado: 'completada' },
-                attributes: [[sequelize.fn('DATE', sequelize.col('created_at')), 'dia'], [sequelize.fn('SUM', sequelize.col('total')), 'total'], [sequelize.fn('COUNT', sequelize.col('id')), 'count']],
-                group: [sequelize.fn('DATE', sequelize.col('created_at'))],
-                order: [[sequelize.fn('DATE', sequelize.col('created_at')), 'ASC']],
-                raw: true,
-            }),
+            obtenerVentasDiarias(rango),
             DetalleVenta.findAll({
                 include: [{ model: Producto, as: 'producto', attributes: ['nombre'] }, { model: Venta, attributes: [], where: { created_at: { [Op.between]: [f1, f2] }, estado: 'completada' } }],
                 attributes: ['producto_id', [sequelize.fn('SUM', sequelize.col('DetalleVenta.cantidad')), 'total_cantidad'], [sequelize.fn('SUM', sequelize.col('DetalleVenta.subtotal')), 'total_ventas']],
@@ -41,7 +38,15 @@ const getResumenGeneral = async (req, res) => {
 
         const totalClientes = await Cliente.count({ where: { activo: 1 } });
 
-        res.json({ ok: true, data: { totalVentas: totalVentas[0], ventasPorDia, topProductos, ventasPorMetodo, totalClientes } });
+        res.json({
+            ok: true,
+            data: {
+                totalVentas: totalVentas[0],
+                ventasPorDia: diarias.serie,
+                resumenDiario: diarias.resumen,
+                topProductos, ventasPorMetodo, totalClientes,
+            },
+        });
     } catch (err) {
         res.status(500).json({ ok: false, msg: err.message });
     }
@@ -49,11 +54,8 @@ const getResumenGeneral = async (req, res) => {
 
 const getRentabilidad = async (req, res) => {
     try {
-        const { desde, hasta } = req.query;
-        const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
-        const fin = new Date(); fin.setHours(23, 59, 59, 999);
-        const f1 = desde ? new Date(desde) : new Date(new Date().setDate(1));
-        const f2 = hasta ? new Date(hasta + 'T23:59:59') : fin;
+        const rango = resolverRango(req.query, { desdePorDefecto: inicioDeMes() });
+        const { inicio: f1, fin: f2 } = rangoUTC(rango.desde, rango.hasta);
 
         const [ventasRes, comprasRes, margenProductos] = await Promise.all([
             Venta.findAll({
@@ -65,7 +67,7 @@ const getRentabilidad = async (req, res) => {
                 raw: true,
             }),
             Compra.findAll({
-                where: { fecha_compra: { [Op.between]: [f1.toISOString().split('T')[0], f2.toISOString().split('T')[0]] } },
+                where: { fecha_compra: { [Op.between]: [rango.desde, rango.hasta] } },
                 attributes: [
                     [sequelize.fn('SUM', sequelize.col('total')), 'total'],
                     [sequelize.fn('COUNT', sequelize.col('id')), 'count'],
@@ -74,7 +76,7 @@ const getRentabilidad = async (req, res) => {
             }),
             DetalleVenta.findAll({
                 include: [
-                    { model: Producto, as: 'producto', attributes: ['nombre', 'precio_compra'] },
+                    { model: Producto, as: 'producto', attributes: ['nombre', 'precio_costo'] },
                     { model: Venta, attributes: [], where: { created_at: { [Op.between]: [f1, f2] }, estado: 'completada' } },
                 ],
                 attributes: [
@@ -82,7 +84,7 @@ const getRentabilidad = async (req, res) => {
                     [sequelize.fn('SUM', sequelize.col('DetalleVenta.cantidad')), 'cantidad_vendida'],
                     [sequelize.fn('SUM', sequelize.col('DetalleVenta.subtotal')), 'ingreso_venta'],
                 ],
-                group: ['producto_id', 'producto.nombre', 'producto.precio_compra'],
+                group: ['producto_id', 'producto.nombre', 'producto.precio_costo'],
                 order: [[sequelize.fn('SUM', sequelize.col('DetalleVenta.subtotal')), 'DESC']],
                 limit: 10,
                 nest: true,
@@ -97,7 +99,7 @@ const getRentabilidad = async (req, res) => {
         const productosMargen = margenProductos.map(p => {
             const cantVendida = parseFloat(p.get('cantidad_vendida') || 0);
             const ingresoVenta = parseFloat(p.get('ingreso_venta') || 0);
-            const costoUnit = parseFloat(p.producto?.precio_compra || 0);
+            const costoUnit = parseFloat(p.producto?.precio_costo || 0);
             const costoTotal = costoUnit * cantVendida;
             const margen = ingresoVenta - costoTotal;
             return {
@@ -121,11 +123,9 @@ const getRentabilidad = async (req, res) => {
 
 const getTopClientes = async (req, res) => {
     try {
-        const { desde, hasta, limite = 20 } = req.query;
-        const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
-        const fin = new Date(); fin.setHours(23, 59, 59, 999);
-        const f1 = desde ? new Date(desde) : new Date(new Date().setDate(1));
-        const f2 = hasta ? new Date(hasta + 'T23:59:59') : fin;
+        const { limite = 20 } = req.query;
+        const rango = resolverRango(req.query, { desdePorDefecto: inicioDeMes() });
+        const { inicio: f1, fin: f2 } = rangoUTC(rango.desde, rango.hasta);
 
         const clientesTop = await Venta.findAll({
             where: {
@@ -152,4 +152,21 @@ const getTopClientes = async (req, res) => {
     }
 };
 
-module.exports = { getResumenGeneral, getRentabilidad, getTopClientes };
+/**
+ * GET /api/reportes/ventas-diarias?dias=7  |  ?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
+ * Serie diaria en hora local con el día en curso marcado como parcial.
+ * `dias` = días cerrados a mostrar antes de hoy (por defecto 7, máx. 366).
+ */
+const getVentasDiarias = async (req, res) => {
+    try {
+        const dias = Math.min(Math.max(parseInt(req.query.dias) || 7, 1), 366);
+        const hoy = fechaLocal();
+        const rango = resolverRango(req.query, { desdePorDefecto: sumarDias(hoy, -dias), hastaPorDefecto: hoy });
+        const data = await obtenerVentasDiarias(rango);
+        res.json({ ok: true, data });
+    } catch (err) {
+        res.status(500).json({ ok: false, msg: err.message });
+    }
+};
+
+module.exports = { getResumenGeneral, getRentabilidad, getTopClientes, getVentasDiarias };

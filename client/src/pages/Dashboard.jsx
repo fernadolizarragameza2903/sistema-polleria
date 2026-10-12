@@ -6,6 +6,7 @@ import {
 } from 'chart.js';
 import { ShoppingCart, Users, Package, TrendingUp, AlertCircle } from 'lucide-react';
 import api from '../api/axios';
+import { fechaLocalRelativa, parseFechaLocal } from '../utils/fechas';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Title, Tooltip, Legend, Filler);
 
@@ -24,17 +25,20 @@ export default function Dashboard() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const desde = new Date(); desde.setDate(desde.getDate() - 7);
-        const hasta = new Date();
-        api.get(`/reportes/resumen?desde=${desde.toISOString().split('T')[0]}&hasta=${hasta.toISOString().split('T')[0]}`)
+        // 7 días cerrados + el día en curso (el backend lo marca como parcial).
+        api.get(`/reportes/resumen?desde=${fechaLocalRelativa(-7)}&hasta=${fechaLocalRelativa(0)}`)
             .then(r => setData(r.data.data))
             .catch(() => setData(null))
             .finally(() => setLoading(false));
     }, []);
 
     const dias = data?.ventasPorDia || [];
-    const labels = dias.map(d => new Date(d.dia).toLocaleDateString('es', { weekday: 'short', day: 'numeric' }));
+    const labels = dias.map(d => d.parcial
+        ? 'hoy*'
+        : parseFechaLocal(d.dia).toLocaleDateString('es', { weekday: 'short', day: 'numeric' }));
     const totales = dias.map(d => parseFloat(d.total || 0));
+    const esParcial = (i) => Boolean(dias[i]?.parcial);
+    const promedioCerrados = data?.resumenDiario?.promedio_diario || 0;
 
     const topProd = data?.topProductos || [];
     const metodoPago = data?.ventasPorMetodo || [];
@@ -47,11 +51,35 @@ export default function Dashboard() {
             borderColor: '#e91e8c',
             backgroundColor: 'rgba(233,30,140,0.08)',
             borderWidth: 2.5,
-            pointBackgroundColor: '#e91e8c',
-            pointRadius: 4,
+            // El día en curso se dibuja hueco y con línea punteada: no es comparable con días cerrados.
+            pointBackgroundColor: ctx => esParcial(ctx.dataIndex) ? '#fff' : '#e91e8c',
+            pointBorderColor: '#e91e8c',
+            pointBorderWidth: ctx => esParcial(ctx.dataIndex) ? 2 : 1,
+            pointRadius: ctx => esParcial(ctx.dataIndex) ? 5 : 4,
+            segment: { borderDash: ctx => esParcial(ctx.p1DataIndex) ? [6, 4] : undefined },
             fill: true,
             tension: 0.4,
         }],
+    };
+
+    const lineOptions = {
+        ...chartDefaults,
+        plugins: {
+            ...chartDefaults.plugins,
+            tooltip: {
+                ...chartDefaults.plugins.tooltip,
+                callbacks: {
+                    label: ctx => ` S/. ${ctx.parsed.y.toFixed(2)}`,
+                    afterLabel: ctx => {
+                        const d = dias[ctx.dataIndex];
+                        if (!d) return '';
+                        const lineas = [`${d.count} ventas · ticket S/. ${Number(d.ticket_promedio || 0).toFixed(2)}`];
+                        if (d.parcial) lineas.push(`Día en curso (datos hasta ${d.corte})`);
+                        return lineas;
+                    },
+                },
+            },
+        },
     };
 
     const barData = {
@@ -135,12 +163,15 @@ export default function Dashboard() {
                     <div className="card-header">
                         <div>
                             <div className="card-title">Ventas últimos 7 días</div>
-                            <div className="card-subtitle">Ingresos diarios en soles</div>
+                            <div className="card-subtitle">
+                                Ingresos diarios en soles{promedioCerrados > 0 && ` · promedio días cerrados S/. ${promedioCerrados.toFixed(0)}`}
+                                {dias.some(d => d.parcial) && ' · * día en curso, parcial'}
+                            </div>
                         </div>
                         <span className="chip chip-success"><span className="chip-dot" style={{ background: 'var(--accent-green)' }} /> En vivo</span>
                     </div>
                     <div style={{ height: 200, position: 'relative', width: '100%', minWidth: 0 }}>
-                        <Line data={lineData} options={{ ...chartDefaults }} />
+                        <Line data={lineData} options={lineOptions} />
                     </div>
                 </div>
 

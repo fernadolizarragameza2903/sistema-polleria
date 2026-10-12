@@ -21,16 +21,12 @@ export default function CRMPerfilCliente() {
             const [resCli, resInt, resVentas] = await Promise.all([
                 api.get(`/clientes/${id}`),
                 api.get(`/crm/interacciones/${id}`),
-                // Reutilizamos el endpoint general filtrando en frontend o idealmente un queryero,
-                // Pero como es prueba, traemos todas las ventas y filtramos (o usamos el API correcto si existe).
-                // Vamos a intentar obtenerlas usando el getOne del cliente que ya incluye compras si el backend lo soporta, o traemos de /ventas.
-                api.get('/ventas')
+                // El historial se filtra en el servidor por cliente (antes se traían todas las ventas).
+                api.get('/ventas', { params: { cliente_id: id, limit: 100 } })
             ]);
             setCliente(resCli.data.cliente);
             setInteracciones(resInt.data.interacciones);
-            // Filtramos las ventas de este cliente específico
-            const ventasFiltradas = resVentas.data.ventas.filter(v => v.cliente_id == id);
-            setVentas(ventasFiltradas);
+            setVentas(resVentas.data.ventas);
         } catch (err) {
             toast.error('Error al cargar perfil 360');
         } finally {

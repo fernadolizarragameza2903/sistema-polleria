@@ -78,6 +78,46 @@ const remove = async (req, res) => {
     }
 };
 
+/**
+ * GET /api/productos/mas-pedidos?dias=30&limite=12
+ * Alimenta la categoría dinámica "Lo más pedido" del POS: productos activos
+ * más vendidos (por unidades) en ventas completadas de los últimos N días.
+ */
+const getMasPedidos = async (req, res) => {
+    try {
+        const dias = Math.min(Math.max(parseInt(req.query.dias) || 30, 1), 365);
+        const limite = Math.min(Math.max(parseInt(req.query.limite) || 12, 1), 50);
+        const desde = new Date(Date.now() - dias * 24 * 60 * 60 * 1000);
+
+        const ranking = await sequelize.query(`
+            SELECT dv.producto_id, SUM(dv.cantidad) AS unidades
+            FROM detalle_ventas dv
+            JOIN ventas v     ON v.id = dv.venta_id
+            JOIN productos p  ON p.id = dv.producto_id AND p.activo = 1
+            JOIN categorias c ON c.id = p.categoria_id AND c.activo = 1
+            WHERE v.estado = 'completada' AND v.created_at >= :desde
+            GROUP BY dv.producto_id
+            ORDER BY unidades DESC
+            LIMIT :limite`,
+            { replacements: { desde, limite }, type: sequelize.QueryTypes.SELECT });
+
+        const productos = await Producto.findAll({
+            where: { id: ranking.map(r => r.producto_id) },
+            include: [{ model: Categoria, as: 'categoria' }],
+        });
+        const porId = new Map(productos.map(p => [p.id, p]));
+        res.json({
+            ok: true,
+            dias,
+            productos: ranking
+                .filter(r => porId.has(r.producto_id))
+                .map(r => ({ ...porId.get(r.producto_id).toJSON(), unidades_vendidas: parseInt(r.unidades) })),
+        });
+    } catch (err) {
+        res.status(500).json({ ok: false, msg: err.message });
+    }
+};
+
 const getLowStock = async (req, res) => {
     try {
         const productos = await Producto.findAll({
@@ -139,4 +179,4 @@ const getMovimientos = async (req, res) => {
     }
 };
 
-module.exports = { getAll, getOne, create, update, remove, getLowStock, ajustarStock, getMovimientos };
+module.exports = { getAll, getOne, create, update, remove, getLowStock, getMasPedidos, ajustarStock, getMovimientos };

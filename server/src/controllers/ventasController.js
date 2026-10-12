@@ -1,106 +1,175 @@
-const { Venta, DetalleVenta, Producto, Cliente, Usuario, Caja, InventarioMovimiento, sequelize } = require('../models');
+const { Venta, DetalleVenta, Producto, Cliente, Usuario, Caja, Pedido, sequelize } = require('../models');
 const audit = require('../helpers/audit');
 const { imprimirTicket } = require('../services/printerService');
-const { enviarAlertaStock } = require('../services/emailService');
+const { descontarStock, restituirStock, otorgarPuntos } = require('../services/stockService');
+const { normalizarDatosPedido, crearPedidoDeVenta } = require('../services/pedidoService');
+const { rangoUTC, esFechaValida } = require('../helpers/fechasNegocio');
 
 const { Op } = require('sequelize');
 
+const LIMITE_POR_DEFECTO = 25;
+const LIMITE_MAXIMO = 100;
+
+// Columnas que necesita la tabla del historial (sin TEXT ni detalle de productos).
+const COLUMNAS_LISTADO = ['id', 'numero_comprobante', 'tipo_venta', 'cliente_id', 'total', 'metodo_pago', 'estado', 'created_at'];
+
+/** Construye el WHERE del historial a partir de los filtros del query string. */
+function filtrosHistorial({ desde, hasta, tipo_venta, metodo_pago, estado, cliente_id, q }) {
+    const where = {};
+    if (esFechaValida(desde) || esFechaValida(hasta)) {
+        const { inicio, fin } = rangoUTC(esFechaValida(desde) ? desde : '2000-01-01', esFechaValida(hasta) ? hasta : '2999-12-31');
+        where.created_at = { [Op.between]: [inicio, fin] };
+    }
+    if (tipo_venta) where.tipo_venta = tipo_venta;
+    if (metodo_pago) where.metodo_pago = metodo_pago;
+    if (estado) where.estado = estado;
+    if (cliente_id) where.cliente_id = cliente_id;
+
+    const termino = String(q || '').trim();
+    if (termino) {
+        // Busca por comprobante o por nombre (cliente registrado o nombre dado en el delivery).
+        where[Op.or] = [
+            { numero_comprobante: { [Op.like]: `%${termino}%` } },
+            { '$cliente.nombre$': { [Op.like]: `%${termino}%` } },
+            { '$Pedido.contacto_nombre$': { [Op.like]: `%${termino}%` } },
+        ];
+    }
+    return where;
+}
+
+/**
+ * GET /api/ventas?page=1&limit=25&desde&hasta&estado&tipo_venta&metodo_pago&cliente_id&q
+ * Historial paginado en el servidor. El detalle de productos se pide aparte (GET /ventas/:id).
+ */
 const getAll = async (req, res) => {
     try {
-        const { desde, hasta, tipo_venta, metodo_pago, estado, cliente_id } = req.query;
-        const where = {};
-        if (desde && hasta) where.created_at = { [Op.between]: [new Date(desde), new Date(hasta + 'T23:59:59')] };
-        if (tipo_venta) where.tipo_venta = tipo_venta;
-        if (metodo_pago) where.metodo_pago = metodo_pago;
-        if (estado) where.estado = estado;
-        if (cliente_id) where.cliente_id = cliente_id;
+        const page = Math.max(parseInt(req.query.page) || 1, 1);
+        const limit = Math.min(Math.max(parseInt(req.query.limit) || LIMITE_POR_DEFECTO, 1), LIMITE_MAXIMO);
+        const where = filtrosHistorial(req.query);
 
-        const ventas = await Venta.findAll({
-            where,
+        // Joins 1-a-1 (belongsTo / hasOne): no multiplican filas, así el COUNT es exacto.
+        const include = [
+            { model: Cliente, as: 'cliente', attributes: ['id', 'nombre'] },
+            { model: Usuario, as: 'usuario', attributes: ['id', 'nombre'] },
+            { model: Pedido, attributes: ['id', 'numero_pedido', 'estado', 'canal', 'contacto_nombre', 'contacto_telefono'] },
+        ];
+
+        const [{ rows, count }, totales] = await Promise.all([
+            Venta.findAndCountAll({
+                where, include,
+                attributes: COLUMNAS_LISTADO,
+                order: [['created_at', 'DESC'], ['id', 'DESC']],
+                limit, offset: (page - 1) * limit,
+            }),
+            Venta.findOne({
+                where,
+                include: include.map(i => ({ ...i, attributes: [] })),
+                attributes: [
+                    [sequelize.literal("SUM(CASE WHEN `Venta`.`estado` = 'completada' THEN `Venta`.`total` ELSE 0 END)"), 'total'],
+                ],
+                raw: true,
+            }),
+        ]);
+
+        res.json({
+            ok: true,
+            ventas: rows,
+            paginacion: { page, limit, total: count, paginas: Math.max(Math.ceil(count / limit), 1) },
+            resumen: { monto_completadas: parseFloat(totales?.total || 0) },
+        });
+    } catch (err) {
+        res.status(500).json({ ok: false, msg: err.message });
+    }
+};
+
+/** GET /api/ventas/:id — venta con su detalle y, si es delivery, su pedido. */
+const getOne = async (req, res) => {
+    try {
+        const venta = await Venta.findByPk(req.params.id, {
             include: [
-                { model: Cliente, as: 'cliente', attributes: ['id', 'nombre', 'documento_numero'] },
+                { model: Cliente, as: 'cliente', attributes: ['id', 'nombre', 'documento_numero', 'telefono'] },
                 { model: Usuario, as: 'usuario', attributes: ['id', 'nombre'] },
                 { model: DetalleVenta, as: 'detalles', include: [{ model: Producto, as: 'producto', attributes: ['id', 'nombre'] }] },
+                { model: Pedido },
             ],
-            order: [['created_at', 'DESC']],
         });
-        res.json({ ok: true, ventas });
+        if (!venta) return res.status(404).json({ ok: false, msg: 'Venta no encontrada' });
+        res.json({ ok: true, venta });
     } catch (err) {
         res.status(500).json({ ok: false, msg: err.message });
     }
 };
 
 const create = async (req, res) => {
+    const { tipo_comprobante, tipo_venta, cliente_id, subtotal, igv, descuento, total, metodo_pago, observaciones, detalles } = req.body;
+    const esDelivery = tipo_venta === 'delivery';
+
+    // Validaciones antes de abrir la transacción
+    if (!Array.isArray(detalles) || detalles.length === 0) {
+        return res.status(400).json({ ok: false, msg: 'La venta no tiene productos' });
+    }
+    let datosPedido = null;
+    if (esDelivery) {
+        const { datos, error } = normalizarDatosPedido(req.body.pedido);
+        if (error) return res.status(400).json({ ok: false, msg: error });
+        datosPedido = datos;
+    }
+
+    // Pago: en efectivo se registra con cuánto paga; con otros medios, el monto exacto.
+    const totalNum = parseFloat(total) || 0;
+    const esEfectivo = metodo_pago === 'efectivo';
+    let monto_recibido = esEfectivo ? parseFloat(req.body.monto_recibido) || 0 : totalNum;
+    if (esEfectivo && esDelivery && monto_recibido === 0) monto_recibido = totalNum; // "paga exacto"
+    if (esEfectivo && monto_recibido < totalNum) {
+        return res.status(400).json({ ok: false, msg: `El monto recibido (S/. ${monto_recibido.toFixed(2)}) no cubre el total (S/. ${totalNum.toFixed(2)})` });
+    }
+    const vuelto = esEfectivo ? +(monto_recibido - totalNum).toFixed(2) : 0;
+
     const t = await sequelize.transaction();
     try {
-        const { tipo_comprobante, tipo_venta, cliente_id, caja_id, subtotal, igv, descuento, total, metodo_pago, monto_recibido, vuelto, observaciones, detalles } = req.body;
+        // La caja la decide el servidor: siempre la que está abierta.
+        const caja = await Caja.findOne({ where: { estado: 'abierta' }, transaction: t });
+        if (!caja) {
+            await t.rollback();
+            return res.status(400).json({ ok: false, msg: 'Debes abrir la caja antes de registrar ventas' });
+        }
 
         // Generar número de comprobante
-        const count = await Venta.count();
+        const count = await Venta.count({ transaction: t });
         const numero = `T-${String(count + 1).padStart(6, '0')}`;
 
         const venta = await Venta.create({
             numero_comprobante: numero,
-            tipo_comprobante, tipo_venta, cliente_id, caja_id,
+            tipo_comprobante, tipo_venta, cliente_id: cliente_id || null, caja_id: caja.id,
             usuario_id: req.user.id,
-            subtotal, igv, descuento, total, metodo_pago, monto_recibido, vuelto, observaciones,
+            subtotal, igv, descuento, total: totalNum, metodo_pago, monto_recibido, vuelto, observaciones,
+            // Un delivery queda pendiente hasta que el repartidor lo entrega y cobra.
+            estado: esDelivery ? 'pendiente' : 'completada',
         }, { transaction: t });
 
-        for (const d of detalles) {
-            await DetalleVenta.create({
-                venta_id: venta.id,
-                producto_id: d.producto_id,
-                cantidad: d.cantidad,
-                precio_unitario: d.precio_unitario,
-                descuento: d.descuento || 0,
-                subtotal: d.subtotal,
-            }, { transaction: t });
+        await DetalleVenta.bulkCreate(detalles.map(d => ({
+            venta_id: venta.id,
+            producto_id: d.producto_id,
+            cantidad: d.cantidad,
+            precio_unitario: d.precio_unitario,
+            descuento: d.descuento || 0,
+            subtotal: d.subtotal,
+        })), { transaction: t });
 
-            // Descontar stock
-            const prod = await Producto.findByPk(d.producto_id, { transaction: t });
-            if (prod) {
-                const stockAnterior = prod.stock;
-                const stockNuevo = stockAnterior - d.cantidad;
-                await prod.update({ stock: stockNuevo }, { transaction: t });
+        await descontarStock({ detalles, venta, usuario_id: req.user.id, transaction: t });
 
-                // Alerta asíncrona si cae al umbral mínimo
-                if (stockAnterior > prod.stock_minimo && stockNuevo <= prod.stock_minimo) {
-                    enviarAlertaStock(prod, stockNuevo);
-                }
-                await InventarioMovimiento.create({
-                    producto_id: d.producto_id,
-                    tipo: 'salida',
-                    cantidad: d.cantidad,
-                    stock_anterior: stockAnterior,
-                    stock_nuevo: stockNuevo,
-                    motivo: `Venta ${numero}`,
-                    referencia_id: venta.id,
-                    referencia_tipo: 'venta',
-                    usuario_id: req.user.id,
-                }, { transaction: t });
-            }
-        }
-
-        // Otorgar puntos de fidelidad si hay cliente (1 punto por cada 10 de total)
-        if (cliente_id) {
-            const clienteObj = await Cliente.findByPk(cliente_id, { transaction: t });
-            if (clienteObj) {
-                const puntosGanados = Math.floor(parseFloat(total) / 10);
-                if (puntosGanados > 0) {
-                    await clienteObj.increment('puntos', { by: puntosGanados, transaction: t });
-                }
-            }
-        }
+        let pedido = null;
+        if (esDelivery) pedido = await crearPedidoDeVenta({ venta, datos: datosPedido, usuario_id: req.user.id, transaction: t });
+        else await otorgarPuntos({ venta, transaction: t });
 
         await t.commit();
-        res.status(201).json({ ok: true, venta: { ...venta.toJSON(), numero_comprobante: numero } });
+        res.status(201).json({ ok: true, venta: venta.toJSON(), pedido });
 
-        await audit({ usuario_id: req.user.id, accion: 'VENTA_CREAR', modulo: 'ventas', descripcion: `Venta registrada: ${numero} por S/. ${total}`, ip: req.ip, datos: { venta_id: venta.id, total } });
+        await audit({ usuario_id: req.user.id, accion: 'VENTA_CREAR', modulo: 'ventas', descripcion: `Venta registrada: ${numero} por S/. ${totalNum.toFixed(2)}${pedido ? ` (delivery ${pedido.numero_pedido})` : ''}`, ip: req.ip, datos: { venta_id: venta.id, total: totalNum } });
     } catch (err) {
         await t.rollback();
         await audit({ usuario_id: req.user.id, accion: 'VENTA_CREAR', modulo: 'ventas', descripcion: `Error al crear venta: ${err.message}`, ip: req.ip, resultado: 'error' });
         res.status(500).json({ ok: false, msg: err.message });
-
     }
 };
 
@@ -108,34 +177,18 @@ const anular = async (req, res) => {
     const t = await sequelize.transaction();
     try {
         const venta = await Venta.findByPk(req.params.id, {
-            include: [{ model: DetalleVenta, as: 'detalles' }],
+            include: [{ model: DetalleVenta, as: 'detalles' }, { model: Pedido }],
             transaction: t,
         });
         if (!venta) { await t.rollback(); return res.status(404).json({ ok: false, msg: 'Venta no encontrada' }); }
-        if (venta.estado !== 'completada') { await t.rollback(); return res.status(400).json({ ok: false, msg: 'Solo se pueden anular ventas completadas' }); }
+        if (venta.estado === 'anulada') { await t.rollback(); return res.status(400).json({ ok: false, msg: 'La venta ya está anulada' }); }
 
-        // Restituir stock de cada producto
-        for (const d of venta.detalles) {
-            const prod = await Producto.findByPk(d.producto_id, { transaction: t });
-            if (prod) {
-                const stockAnterior = parseFloat(prod.stock);
-                const stockNuevo = stockAnterior + parseFloat(d.cantidad);
-                await prod.update({ stock: stockNuevo }, { transaction: t });
-                await InventarioMovimiento.create({
-                    producto_id: d.producto_id,
-                    tipo: 'entrada',
-                    cantidad: d.cantidad,
-                    stock_anterior: stockAnterior,
-                    stock_nuevo: stockNuevo,
-                    motivo: `Anulación venta ${venta.numero_comprobante}`,
-                    referencia_id: venta.id,
-                    referencia_tipo: 'anulacion_venta',
-                    usuario_id: req.user.id,
-                }, { transaction: t });
-            }
-        }
-
+        await restituirStock({ venta, usuario_id: req.user.id, transaction: t });
         await venta.update({ estado: 'anulada' }, { transaction: t });
+        // Si era un delivery en curso, el pedido también se cancela.
+        if (venta.Pedido && venta.Pedido.estado !== 'entregado') {
+            await venta.Pedido.update({ estado: 'cancelado' }, { transaction: t });
+        }
         await t.commit();
         res.json({ ok: true, msg: 'Venta anulada y stock restituido correctamente' });
 
@@ -144,7 +197,6 @@ const anular = async (req, res) => {
         await t.rollback();
         await audit({ usuario_id: req.user.id, accion: 'VENTA_ANULAR', modulo: 'ventas', descripcion: `Error al anular venta: ${err.message}`, ip: req.ip, resultado: 'error' });
         res.status(500).json({ ok: false, msg: err.message });
-
     }
 };
 
@@ -206,4 +258,4 @@ const imprimirDirecto = async (req, res) => {
     }
 };
 
-module.exports = { getAll, create, anular, getResumenDia, imprimirDirecto };
+module.exports = { getAll, getOne, create, anular, getResumenDia, imprimirDirecto };

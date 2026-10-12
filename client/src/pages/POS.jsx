@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { ShoppingCart, Trash2, CreditCard, Smartphone, Banknote, Plus, Minus, Search, CheckCircle, Printer, Lock } from 'lucide-react';
+import { ShoppingCart, Trash2, CreditCard, Smartphone, Banknote, Plus, Minus, Search, CheckCircle, Printer, Lock, Flame, Bike } from 'lucide-react';
 import api from '../api/axios';
 import useCartStore from '../store/cartStore';
 import useConfigStore from '../store/configStore';
 import toast from 'react-hot-toast';
+import DeliveryModal from '../components/pos/DeliveryModal';
 
 const PAYMENT_METHODS = [
     { value: 'efectivo', label: 'Efectivo', icon: Banknote },
@@ -32,6 +33,8 @@ export default function POS() {
     const [cajaLoading, setCajaLoading] = useState(true);
     const [ultimaVenta, setUltimaVenta] = useState(null);
     const [promocionesActivas, setPromocionesActivas] = useState([]);
+    const [masPedidos, setMasPedidos] = useState([]);
+    const [deliveryOpen, setDeliveryOpen] = useState(false);
     const boletaRef = useRef(null);
 
     const { config } = useConfigStore();
@@ -69,9 +72,13 @@ export default function POS() {
             api.get('/caja/activa'),
             api.get('/clientes'),
             api.get('/promociones/activas'),
-        ]).then(([p, c, caja, cli, promos]) => {
+            api.get('/productos/mas-pedidos', { params: { dias: 30, limite: 12 } }),
+        ]).then(([p, c, caja, cli, promos, top]) => {
             setProductos(p.data.productos);
             setCategorias(c.data.categorias);
+            setMasPedidos(top.data.productos || []);
+            // Arrancar en "Lo más pedido": es lo que el cajero marca más rápido.
+            if (top.data.productos?.length && c.data.categorias.some(cat => cat.tipo === 'mas_pedido')) setCatFilter('mas');
             setCajaActiva(caja.data.caja);
             setClientes(cli.data.clientes?.filter(c => c.activo) || []);
             setPromocionesActivas(promos.data.promociones || []);
@@ -79,48 +86,58 @@ export default function POS() {
         }).catch(() => setCajaLoading(false));
     }, []);
 
-    const filtered = productos.filter(p => {
-        const matchCat = catFilter === 'all' || p.categoria_id == catFilter;
-        const matchSearch = p.nombre.toLowerCase().includes(search.toLowerCase());
-        return matchCat && matchSearch;
-    });
+    // La categoría "Lo más pedido" es dinámica: no se asignan productos, se calcula con las ventas.
+    const catMasPedido = categorias.find(c => c.tipo === 'mas_pedido');
+    const categoriasNormales = categorias.filter(c => c.tipo !== 'mas_pedido');
+    const termino = search.toLowerCase();
+    // Al buscar se busca en todo el menú, sin importar la pestaña.
+    const filtered = catFilter === 'mas' && !termino
+        ? masPedidos
+        : productos.filter(p => {
+            const matchCat = termino || catFilter === 'all' || catFilter === 'mas' || p.categoria_id == catFilter;
+            return matchCat && p.nombre.toLowerCase().includes(termino);
+        });
 
-    const procesarVenta = async () => {
-        if (!cajaActiva) return toast.error('Debes abrir la caja antes de vender');
-        if (items.length === 0) return toast.error('Agrega productos al carrito');
-        if (!montoRecibido && metodoPago === 'efectivo') return toast.error('Ingresa el monto recibido');
+    const esDelivery = tipoVenta === 'delivery';
+    const clienteSeleccionado = clientes.find(c => c.id == clienteId) || null;
+
+    /** Envía la venta. En delivery el pago y los datos de entrega vienen del modal. */
+    const registrarVenta = async ({ metodo = metodoPago, monto = montoRecibido, pedido = null, costoDelivery = 0 } = {}) => {
+        const totalFinal = total + costoDelivery;
+        const igv = totalFinal * 0.18;
+        const sub = totalFinal - igv;
+        const montoFinal = metodo === 'efectivo' ? monto : totalFinal;
         setLoading(true);
         try {
-            const igv = total * 0.18;
-            const sub = total - igv;
             const res = await api.post('/ventas', {
                 tipo_venta: tipoVenta,
                 tipo_comprobante: 'ticket',
-                caja_id: cajaActiva.id,
                 cliente_id: clienteId || null,
                 subtotal: sub.toFixed(2),
                 igv: igv.toFixed(2),
                 descuento: descuentoFinal.toFixed(2),
-                total: total.toFixed(2),
-                metodo_pago: metodoPago,
-                monto_recibido: montoRecibido,
-                vuelto: vuelto.toFixed(2),
+                total: totalFinal.toFixed(2),
+                metodo_pago: metodo,
+                monto_recibido: montoFinal,
                 detalles: items,
+                pedido,
             });
-            const ventaData = {
+            setUltimaVenta({
                 ...res.data.venta,
+                pedido: res.data.pedido,
                 items: [...items],
                 subtotal: sub,
                 igv,
                 descuento: descuentoFinal,
-                total,
-                metodoPago,
-                montoRecibido,
-                vuelto,
+                costoDelivery,
+                total: totalFinal,
+                metodoPago: metodo,
+                montoRecibido: montoFinal,
+                vuelto: Math.max(0, montoFinal - totalFinal),
                 tipoVenta,
-            };
-            setUltimaVenta(ventaData);
-            toast.success('¡Venta registrada con éxito!');
+            });
+            toast.success(res.data.pedido ? `Pedido ${res.data.pedido.numero_pedido} enviado a Pedidos` : '¡Venta registrada con éxito!');
+            setDeliveryOpen(false);
             clear();
             setClienteId('');
             setClienteSearch('');
@@ -129,6 +146,15 @@ export default function POS() {
         } finally {
             setLoading(false);
         }
+    };
+
+    const procesarVenta = () => {
+        if (!cajaActiva) return toast.error('Debes abrir la caja antes de vender');
+        if (items.length === 0) return toast.error('Agrega productos al carrito');
+        if (esDelivery) return setDeliveryOpen(true);
+        if (!montoRecibido && metodoPago === 'efectivo') return toast.error('Ingresa el monto recibido');
+        if (metodoPago === 'efectivo' && montoRecibido < total) return toast.error('El monto recibido no cubre el total');
+        registrarVenta();
     };
 
     const imprimirBoleta = async () => {
@@ -179,6 +205,13 @@ export default function POS() {
                 <div class="center">${v.numero_comprobante}</div>
                 <div class="center">${new Date().toLocaleString('es-PE')}</div>
                 <div class="row"><span>Tipo:</span><span>${v.tipoVenta?.toUpperCase() || ''}</span></div>
+                ${v.pedido ? `
+                    <div class="row"><span>Pedido:</span><span>${v.pedido.numero_pedido}</span></div>
+                    ${v.pedido.contacto_nombre ? `<div class="row"><span>Cliente:</span><span>${v.pedido.contacto_nombre}</span></div>` : ''}
+                    ${v.pedido.contacto_telefono ? `<div class="row"><span>Teléfono:</span><span>${v.pedido.contacto_telefono}</span></div>` : ''}
+                    ${v.pedido.direccion_entrega ? `<div>Dir: ${v.pedido.direccion_entrega}</div>` : ''}
+                    ${v.pedido.referencia ? `<div>Ref: ${v.pedido.referencia}</div>` : ''}
+                    ${v.pedido.notas ? `<div>Nota: ${v.pedido.notas}</div>` : ''}` : ''}
                 <div class="line"></div>
                 <div class="bold" style="margin-bottom:4px">PRODUCTOS</div>
                 ${v.items.map(i => `
@@ -190,6 +223,7 @@ export default function POS() {
                         <span>${moneda} ${i.subtotal.toFixed(2)}</span>
                     </div>
                 `).join('')}
+                ${v.costoDelivery > 0 ? `<div class="row"><span>Delivery</span><span>${moneda} ${v.costoDelivery.toFixed(2)}</span></div>` : ''}
                 <div class="line"></div>
                 <div class="row"><span>Subtotal:</span><span>${moneda} ${v.subtotal.toFixed(2)}</span></div>
                 <div class="row"><span>IGV (18%):</span><span>${moneda} ${v.igv.toFixed(2)}</span></div>
@@ -256,8 +290,13 @@ export default function POS() {
                         </div>
                     </div>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {catMasPedido && masPedidos.length > 0 && (
+                            <button className={`btn btn-sm ${catFilter === 'mas' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setCatFilter('mas')}>
+                                <Flame size={12} /> {catMasPedido.nombre}
+                            </button>
+                        )}
                         <button className={`btn btn-sm ${catFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setCatFilter('all')}>Todos</button>
-                        {categorias.map(c => (
+                        {categoriasNormales.map(c => (
                             <button key={c.id} className={`btn btn-sm ${catFilter == c.id ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setCatFilter(c.id)}>{c.nombre}</button>
                         ))}
                     </div>
@@ -269,6 +308,7 @@ export default function POS() {
                                 <div className="product-card-img">{p.imagen ? <img src={p.imagen} alt={p.nombre} /> : '🍗'}</div>
                                 <div className="product-card-name">{p.nombre}</div>
                                 <div className="product-card-price">S/. {parseFloat(p.precio).toFixed(2)}</div>
+                                {p.unidades_vendidas > 0 && catFilter === 'mas' && !termino && <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>🔥 {p.unidades_vendidas} vendidos (30 días)</div>}
                                 {p.stock <= p.stock_minimo && <div style={{ fontSize: 10, color: 'var(--accent-red)', marginTop: 4 }}>⚠ Bajo stock</div>}
                             </div>
                         ))}
@@ -387,8 +427,14 @@ export default function POS() {
                             </div>
                         </div>
 
+                        {esDelivery && (
+                            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10, textAlign: 'center' }}>
+                                El pago, la dirección y el costo de delivery se registran en el siguiente paso.
+                            </div>
+                        )}
+
                         {/* Método de pago */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 10 }}>
+                        {!esDelivery && <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 10 }}>
                             {PAYMENT_METHODS.map(m => {
                                 const Icon = m.icon;
                                 return (
@@ -397,9 +443,9 @@ export default function POS() {
                                     </button>
                                 );
                             })}
-                        </div>
+                        </div>}
 
-                        {metodoPago === 'efectivo' && (
+                        {!esDelivery && metodoPago === 'efectivo' && (
                             <div style={{ marginBottom: 10 }}>
                                 <input className="form-control" type="number" placeholder="Monto recibido..." value={montoRecibido || ''} onChange={e => setMontoRecibido(parseFloat(e.target.value) || 0)} />
                                 {montoRecibido > 0 && (
@@ -411,12 +457,23 @@ export default function POS() {
                         )}
 
                         <button className="btn btn-primary btn-block btn-lg" onClick={procesarVenta} disabled={loading || items.length === 0}>
-                            {loading ? <div className="loader" style={{ width: 16, height: 16, borderWidth: 2 }} /> : <CheckCircle size={16} />}
-                            {loading ? 'Procesando...' : 'Cobrar'}
+                            {loading ? <div className="loader" style={{ width: 16, height: 16, borderWidth: 2 }} /> : esDelivery ? <Bike size={16} /> : <CheckCircle size={16} />}
+                            {loading ? 'Procesando...' : esDelivery ? 'Datos del delivery' : 'Cobrar'}
                         </button>
                     </div>
                 </div>
             </div>
+
+            <DeliveryModal
+                open={deliveryOpen}
+                totalProductos={total}
+                cliente={clienteSeleccionado}
+                costoDeliveryPorDefecto={parseFloat(config?.costo_delivery) || 0}
+                moneda={config?.moneda || 'S/.'}
+                loading={loading}
+                onCancel={() => setDeliveryOpen(false)}
+                onConfirm={({ pedido, metodoPago: metodo, montoRecibido: monto, costoDelivery }) => registrarVenta({ metodo, monto, pedido, costoDelivery })}
+            />
         </div>
     );
 }

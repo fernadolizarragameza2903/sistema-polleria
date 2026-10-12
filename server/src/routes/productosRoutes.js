@@ -12,6 +12,7 @@ const upload = multer({ storage });
 
 router.get('/', auth, c.getAll);
 router.get('/bajo-stock', auth, c.getLowStock);
+router.get('/mas-pedidos', auth, c.getMasPedidos);
 router.get('/movimientos', auth, c.getMovimientos);
 router.get('/:id', auth, c.getOne);
 router.post('/', auth, upload.single('imagen'), c.create);

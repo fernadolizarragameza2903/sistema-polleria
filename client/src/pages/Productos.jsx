@@ -145,7 +145,7 @@ export default function Productos() {
                                     <div className="form-group"><label className="form-label">Categoría</label>
                                         <select className="form-control" value={form.categoria_id} onChange={e => setForm({ ...form, categoria_id: e.target.value })}>
                                             <option value="">Sin categoría</option>
-                                            {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                            {categorias.filter(c => c.tipo !== 'mas_pedido').map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                                         </select>
                                     </div>
                                 </div>

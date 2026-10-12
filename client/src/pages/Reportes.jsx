@@ -3,6 +3,7 @@ import { BarChart2, TrendingUp, Download, FileText, Printer, DollarSign, Users }
 import { Bar } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip } from 'chart.js';
 import api from '../api/axios';
+import { fechaLocalISO, fechaLocalRelativa, parseFechaLocal } from '../utils/fechas';
 import useConfigStore from '../store/configStore';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip);
@@ -15,8 +16,8 @@ export default function Reportes() {
     const [rentLoading, setRentLoading] = useState(false);
     const [clientesLoading, setClientesLoading] = useState(false);
     const [tab, setTab] = useState('ventas'); // 'ventas' | 'rentabilidad' | 'clientes'
-    const [desde, setDesde] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().split('T')[0]; });
-    const [hasta, setHasta] = useState(() => new Date().toISOString().split('T')[0]);
+    const [desde, setDesde] = useState(() => fechaLocalRelativa(-30));
+    const [hasta, setHasta] = useState(() => fechaLocalISO());
     const { config } = useConfigStore();
     const moneda = config?.moneda || 'S/.';
 
@@ -46,8 +47,8 @@ export default function Reportes() {
     const ticketPromedio = numTransacciones > 0 ? (totalVentas / numTransacciones) : 0;
 
     const barData = {
-        labels: ventasPorDia.map(d => new Date(d.dia).toLocaleDateString('es', { day: '2-digit', month: '2-digit' })),
-        datasets: [{ label: `Ventas ${moneda}`, data: ventasPorDia.map(d => parseFloat(d.total || 0)), backgroundColor: '#e91e8c', borderRadius: 6, borderSkipped: false }],
+        labels: ventasPorDia.map(d => parseFechaLocal(d.dia).toLocaleDateString('es', { day: '2-digit', month: '2-digit' }) + (d.parcial ? '*' : '')),
+        datasets: [{ label: `Ventas ${moneda}`, data: ventasPorDia.map(d => parseFloat(d.total || 0)), backgroundColor: ventasPorDia.map(d => d.parcial ? 'rgba(233,30,140,0.35)' : '#e91e8c'), borderRadius: 6, borderSkipped: false }],
     };
 
     const ventasPorMetodo = data?.ventasPorMetodo || [];
@@ -60,7 +61,7 @@ export default function Reportes() {
 
         const filasPorDia = ventasPorDia.map((d, i) => `
             <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
-                <td>${new Date(d.dia).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' })}</td>
+                <td>${parseFechaLocal(d.dia).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' })}${d.parcial ? ' (parcial)' : ''}</td>
                 <td style="text-align:center">${d.count || 0}</td>
                 <td style="text-align:right;font-weight:600">${moneda} ${parseFloat(d.total || 0).toFixed(2)}</td>
             </tr>`).join('');
@@ -108,7 +109,7 @@ export default function Reportes() {
                 <p style="font-size:15px;font-weight:700;margin-top:8px">REPORTE DE VENTAS</p>
             </div>
             <div class="periodo">
-                📅 Período: <strong>${new Date(desde).toLocaleDateString('es-PE')} — ${new Date(hasta).toLocaleDateString('es-PE')}</strong>
+                📅 Período: <strong>${parseFechaLocal(desde).toLocaleDateString('es-PE')} — ${parseFechaLocal(hasta).toLocaleDateString('es-PE')}</strong>
                 &nbsp;&nbsp; | &nbsp;&nbsp; Generado: ${new Date().toLocaleString('es-PE')}
             </div>
             <div class="stats">

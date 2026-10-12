@@ -209,7 +209,7 @@ export default function Promociones() {
                                             <label className="form-label">Categoría a descontar</label>
                                             <select className="form-control" required value={form.categoria_id} onChange={e => setForm({ ...form, categoria_id: e.target.value })}>
                                                 <option value="">Selecciona una categoría...</option>
-                                                {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                                {categorias.filter(c => c.tipo !== 'mas_pedido').map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                                             </select>
                                         </div>
                                     )}

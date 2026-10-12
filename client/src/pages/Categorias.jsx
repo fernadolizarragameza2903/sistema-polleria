@@ -4,20 +4,25 @@ import api from '../api/axios';
 import toast from 'react-hot-toast';
 import ConfirmModal from '../components/ui/ConfirmModal';
 
+// Emoji por ícono guardado en la BD (lucide name -> emoji para la tarjeta)
+const EMOJI_ICONO = { Flame: '🔥', CupSoda: '🥤', Drumstick: '🍗', Salad: '🥗' };
+const FORM_VACIO = { nombre: '', descripcion: '', color: '#FF6B2B', orden: 50 };
+
 export default function Categorias() {
     const [cats, setCats] = useState([]);
     const [loading, setLoading] = useState(true);
     const [modal, setModal] = useState(false);
     const [editing, setEditing] = useState(null);
-    const [form, setForm] = useState({ nombre: '', descripcion: '', color: '#FF6B2B' });
+    const [form, setForm] = useState(FORM_VACIO);
     const [confirm, setConfirm] = useState({ open: false, categoria: null });
 
-    const load = () => api.get('/categorias').then(r => setCats(r.data.categorias)).finally(() => setLoading(false));
+    // ?todas=1 incluye las inactivas para poder reactivarlas desde aquí.
+    const load = () => api.get('/categorias', { params: { todas: 1 } }).then(r => setCats(r.data.categorias)).finally(() => setLoading(false));
     useEffect(() => { load(); }, []);
 
     const openModal = (c = null) => {
         setEditing(c);
-        setForm(c ? { nombre: c.nombre, descripcion: c.descripcion || '', color: c.color } : { nombre: '', descripcion: '', color: '#FF6B2B' });
+        setForm(c ? { nombre: c.nombre, descripcion: c.descripcion || '', color: c.color, orden: c.orden ?? 50 } : FORM_VACIO);
         setModal(true);
     };
 
@@ -43,7 +48,7 @@ export default function Categorias() {
     return (
         <div>
             <div className="page-header">
-                <div><div className="page-title">Categorías</div><div className="page-subtitle">{cats.length} categorías</div></div>
+                <div><div className="page-title">Categorías</div><div className="page-subtitle">{cats.length} categorías · ordenadas como aparecen en el Punto de Venta</div></div>
                 <button className="btn btn-primary" onClick={() => openModal()}><Plus size={14} /> Nueva Categoría</button>
             </div>
             <div className="grid-3">
@@ -51,11 +56,15 @@ export default function Categorias() {
                     <div key={c.id} className="card" style={{ borderLeft: `4px solid ${c.color}`, opacity: c.activo ? 1 : 0.6 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                             <div>
-                                <div style={{ fontSize: 24, marginBottom: 8 }}>🏷️</div>
+                                <div style={{ fontSize: 24, marginBottom: 8 }}>{EMOJI_ICONO[c.icono] || '🏷️'}</div>
                                 <div style={{ fontWeight: 700, fontSize: 15 }}>{c.nombre}</div>
                                 <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}>{c.descripcion || 'Sin descripción'}</div>
-                                <div style={{ marginTop: 8 }}>
+                                <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                                     <span className={`chip ${c.activo ? 'chip-success' : 'chip-error'}`}>{c.activo ? 'Activa' : 'Inactiva'}</span>
+                                    {c.tipo === 'mas_pedido'
+                                        ? <span className="chip chip-warning" title="Se llena con los productos más vendidos de los últimos 30 días">Automática</span>
+                                        : <span className="chip chip-info">{c.total_productos ?? 0} productos</span>}
+                                    <span className="chip chip-info" title="Posición en el Punto de Venta">#{c.orden}</span>
                                 </div>
                             </div>
                             <div style={{ display: 'flex', gap: 6, flexDirection: 'column' }}>
@@ -82,7 +91,15 @@ export default function Categorias() {
                             <div className="modal-body">
                                 <div className="form-group"><label className="form-label">Nombre *</label><input className="form-control" value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} required /></div>
                                 <div className="form-group"><label className="form-label">Descripción</label><textarea className="form-control" value={form.descripcion} onChange={e => setForm({ ...form, descripcion: e.target.value })} /></div>
-                                <div className="form-group"><label className="form-label">Color</label><input className="form-control" type="color" value={form.color} onChange={e => setForm({ ...form, color: e.target.value })} style={{ height: 42 }} /></div>
+                                <div className="grid-2">
+                                    <div className="form-group"><label className="form-label">Color</label><input className="form-control" type="color" value={form.color} onChange={e => setForm({ ...form, color: e.target.value })} style={{ height: 42 }} /></div>
+                                    <div className="form-group"><label className="form-label">Orden en el POS (menor = primero)</label><input className="form-control" type="number" min="0" max="999" value={form.orden} onChange={e => setForm({ ...form, orden: parseInt(e.target.value) || 0 })} /></div>
+                                </div>
+                                {editing?.tipo === 'mas_pedido' && (
+                                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                        Esta categoría es automática: muestra los productos más vendidos de los últimos 30 días. No se le asignan productos a mano.
+                                    </div>
+                                )}
                             </div>
                             <div className="modal-footer">
                                 <button type="button" className="btn btn-secondary" onClick={() => setModal(false)}>Cancelar</button>
