@@ -18,11 +18,15 @@ export default function Login() {
         setLoading(true);
         try {
             const { data } = await api.post('/auth/login', { email, password });
+            // Solo se entra si el backend devolvió una sesión válida.
+            if (!data?.ok || !data.token || !data.usuario?.rol) {
+                throw new Error(data?.msg || 'Respuesta inesperada del servidor');
+            }
             setAuth(data.token, data.usuario);
             toast.success('¡Bienvenido!');
             navigate('/');
         } catch (err) {
-            toast.error(err.response?.data?.msg || 'Error de autenticación');
+            toast.error(err.response?.data?.msg || err.message || 'Error de autenticación');
         } finally {
             setLoading(false);
         }

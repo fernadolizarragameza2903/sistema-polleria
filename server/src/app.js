@@ -19,7 +19,8 @@ app.set('trust proxy', 1);
 // CORS público por defecto ('*'). La autenticación va en el header Authorization
 // (no en cookies), por eso no hace falta `credentials`. Para restringirlo, define
 // CORS_ORIGIN con la URL del frontend (o varias separadas por coma).
-const origenes = (process.env.CORS_ORIGIN || '*').split(',').map(o => o.trim());
+// El navegador envía el origen sin "/" final: se normaliza para que coincida.
+const origenes = (process.env.CORS_ORIGIN || '*').split(',').map(o => o.trim().replace(/\/+$/, '')).filter(Boolean);
 app.use(cors({ origin: origenes.includes('*') ? '*' : origenes }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
