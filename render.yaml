@@ -1,0 +1,60 @@
+# Blueprint de Render: crea el backend (Web Service) y el frontend (Static Site).
+# Uso: Render Dashboard > New > Blueprint > selecciona este repositorio.
+# Las variables marcadas con sync: false se piden al crear el Blueprint.
+services:
+  # ---------------- Backend: API Express ----------------
+  - type: web
+    name: polleria-api
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: TZ
+        value: America/Lima
+      - key: TZ_NEGOCIO
+        value: "-05:00"
+      - key: CORS_ORIGIN
+        value: "*"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES
+        value: 24h
+      - key: MYSQL_HOST
+        sync: false
+      - key: MYSQL_PORT
+        sync: false
+      - key: MYSQL_USER
+        sync: false
+      - key: MYSQL_PASSWORD
+        sync: false
+      - key: MYSQL_DATABASE
+        value: polleria_db
+      - key: MYSQL_SSL
+        value: "true"
+      - key: MYSQL_CA_CERT
+        sync: false
+
+  # ---------------- Frontend: React (Vite) ----------------
+  - type: web
+    name: polleria-web
+    runtime: static
+    rootDir: client
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    # React Router usa rutas del navegador: toda ruta debe servir index.html
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: VITE_API_URL
+        sync: false

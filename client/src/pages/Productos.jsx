@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Plus, Edit, ToggleLeft, ToggleRight, Search, Package } from 'lucide-react';
-import api from '../api/axios';
+import api, { urlArchivo } from '../api/axios';
 import toast from 'react-hot-toast';
 import ConfirmModal from '../components/ui/ConfirmModal';
 
@@ -85,7 +85,7 @@ export default function Productos() {
                                     <td>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                             <div style={{ width: 36, height: 36, background: 'var(--bg-input)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, overflow: 'hidden' }}>
-                                                {p.imagen ? <img src={p.imagen} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : '🍗'}
+                                                {p.imagen ? <img src={urlArchivo(p.imagen)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : '🍗'}
                                             </div>
                                             <div>
                                                 <div style={{ fontWeight: 600 }}>{p.nombre}</div>

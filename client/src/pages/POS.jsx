@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { ShoppingCart, Trash2, CreditCard, Smartphone, Banknote, Plus, Minus, Search, CheckCircle, Printer, Lock, Flame, Bike } from 'lucide-react';
-import api from '../api/axios';
+import { Link } from 'react-router-dom';
+import api, { urlArchivo } from '../api/axios';
 import useCartStore from '../store/cartStore';
 import useConfigStore from '../store/configStore';
 import toast from 'react-hot-toast';
@@ -252,9 +253,9 @@ export default function POS() {
                 <p style={{ color: 'var(--text-muted)', textAlign: 'center', maxWidth: 340 }}>
                     Debes abrir la caja antes de registrar ventas. Ve al módulo de <strong>Caja</strong> para abrirla.
                 </p>
-                <a href="#/caja" className="btn btn-primary" style={{ marginTop: 8 }}>
+                <Link to="/caja" className="btn btn-primary" style={{ marginTop: 8 }}>
                     <Lock size={14} /> Ir a Caja
-                </a>
+                </Link>
             </div>
         );
     }
@@ -305,7 +306,7 @@ export default function POS() {
                     <div className="product-grid" style={{ flex: 1, overflow: 'auto' }}>
                         {filtered.map(p => (
                             <div key={p.id} className="product-card" onClick={() => addItem(p)}>
-                                <div className="product-card-img">{p.imagen ? <img src={p.imagen} alt={p.nombre} /> : '🍗'}</div>
+                                <div className="product-card-img">{p.imagen ? <img src={urlArchivo(p.imagen)} alt={p.nombre} /> : '🍗'}</div>
                                 <div className="product-card-name">{p.nombre}</div>
                                 <div className="product-card-price">S/. {parseFloat(p.precio).toFixed(2)}</div>
                                 {p.unidades_vendidas > 0 && catFilter === 'mas' && !termino && <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>🔥 {p.unidades_vendidas} vendidos (30 días)</div>}
