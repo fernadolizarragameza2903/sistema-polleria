@@ -30,9 +30,7 @@ sistema-polleria/
 |   |   |-- routes/         # Endpoints de la API
 |   |   `-- services/       # Email e impresion
 |   `-- uploads/            # Archivos subidos
-|-- polleria_db.sql         # Script principal de base de datos
-|-- bk_basededatos.sql      # Backup SQL
-|-- caja_egresos.sql        # Script complementario
+|-- polleria_db.sql         # Base de datos completa: estructura + datos de prueba
 `-- LEER_ANTES_DE_INSTALAR.txt
 ```
 
@@ -65,10 +63,12 @@ npm install
 Ejemplo desde consola:
 
 ```bash
-mysql -u root -p < polleria_db.sql
+mysql -u root -p --default-character-set=utf8mb4 < polleria_db.sql
 ```
 
 Si usas phpMyAdmin, crea/importa la base desde la opcion **Importar** y selecciona `polleria_db.sql`.
+
+El script crea la base `polleria_db` si no existe y vuelve a crear todas sus tablas (borra las anteriores), con datos de prueba del 11-abr-2026 al 11-oct-2026.
 
 ## Variables de entorno
 
