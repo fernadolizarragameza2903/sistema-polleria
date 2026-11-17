@@ -1,0 +1,7 @@
+,MAE,RMSE,R2
+Linea base: media movil 7 dias,1.206,1.638,0.045
+Modelo trivial: media de entrenamiento,1.286,1.678,-0.002
+Referencia exigente: media historica por producto,1.117,1.512,0.187
+Ridge (regresion regularizada) (SELECCIONADO),1.142,1.54,0.156
+Random Forest,1.136,1.547,0.149
+Gradient Boosting,1.146,1.545,0.151

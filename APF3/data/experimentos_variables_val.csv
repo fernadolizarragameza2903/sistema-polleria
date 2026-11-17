@@ -1,0 +1,9 @@
+Conjunto de variables,Modelo,MAE_CV_train,MAE_val
+A. Variables base (las usadas),Ridge,1.2414837915036794,1.2014686933100047
+A. Variables base (las usadas),Poisson,1.2483991425231862,1.24528694702826
+"B. + totales de la tienda (lag 7, media 7)",Ridge,1.2408399164669623,1.2106390363037096
+"B. + totales de la tienda (lag 7, media 7)",Poisson,1.246807600609011,1.2518981795334465
+C. + medias de 28 dias,Ridge,1.2234386564827,1.2028201207852303
+C. + medias de 28 dias,Poisson,1.2263556801870297,1.2038950177358647
+D. + dia del mes y quincena,Ridge,1.2317780976762664,1.2011197031910208
+D. + dia del mes y quincena,Poisson,1.236403683532613,1.201614032493525

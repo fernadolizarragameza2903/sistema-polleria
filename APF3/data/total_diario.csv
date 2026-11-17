@@ -1,0 +1,8 @@
+,MAE_val,MAE_test
+Media movil 7 dias,6.346938775510203,4.503401360544217
+Media de entrenamiento,5.587420042643923,4.164362519201228
+Media por dia de la semana,6.04862155388471,
+Ridge alpha=1,5.863647455261086,
+Ridge alpha=10,5.933182209168928,
+Ridge alpha=100,5.983952476737078,
+Elegido (Media de entrenamiento),,4.164362519201228

@@ -1,0 +1,18 @@
+{
+  "entrada": {
+    "fecha": "2026-09-21",
+    "producto_id": 3,
+    "unidades_ayer": 3.0,
+    "unidades_hace_7_dias": 1.0,
+    "media_7_dias": 2.5714285714285716,
+    "media_14_dias": 2.7857142857142856
+  },
+  "salida": {
+    "producto_id": 3,
+    "fecha": "2026-09-21",
+    "unidades_predichas": 2.26,
+    "unidades_sugeridas_compra": 3,
+    "modelo": "Ridge (regresion regularizada)"
+  },
+  "real": 2.0
+}

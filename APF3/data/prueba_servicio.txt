@@ -1,0 +1,8 @@
+== Prueba 1: solicitud valida ==
+{"producto_id": 3, "fecha": "2026-09-21", "unidades_predichas": 2.26, "unidades_sugeridas_compra": 3, "modelo": "Ridge (regresion regularizada)"}
+== Prueba 2: faltan campos ==
+{"error": "faltan campos", "campos": ["producto_id", "unidades_ayer", "unidades_hace_7_dias", "media_7_dias", "media_14_dias"]}
+== Prueba 3: producto fuera de alcance ==
+{"error": "producto fuera del alcance del modelo (12 principales)"}
+== Prueba 4: ruta inexistente ==
+{"error": "ruta no encontrada"}

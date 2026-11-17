@@ -1,0 +1,7 @@
+Criterio,Verificacion ejecutada
+Escala del negocio,"Monto diario medio S/ 864 (min 426, max 2412), unos S/ 26,000 al mes, para una tienda unica de 8 colaboradores. APF1 no declara cifras de ventas; escala plausible para ese tamano, a contrastar con la propietaria con ventas reales"
+Rangos y unidades,Violaciones de rango: 0; fechas futuras: 0; nulos: 0
+Consistencia logica/temporal,"Duplicados por (fecha, producto, tipo): 0; dia_semana incoherente con fecha: 0; tipos permitidos: ['delivery', 'llevar', 'local']"
+Relaciones plausibles,Domingo 67 u./dia vs lun-jue 43 u./dia; fechas especiales 95 vs normales 49 u./dia
+Coherencia con APF2,Campos del contrato presentes: True (mas columna origen)
+Mezcla real + simulado,"Origen: {'simulado': 6207} -> no hay mezcla; todo simulado, no se presenta como real"

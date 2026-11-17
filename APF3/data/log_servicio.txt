@@ -1,0 +1,5 @@
+Servicio de prediccion en http://127.0.0.1:8765/api/prediccion/demanda
+[servicio] POST /api/prediccion/demanda "POST /api/prediccion/demanda HTTP/1.1" 200 -
+[servicio] POST /api/prediccion/demanda "POST /api/prediccion/demanda HTTP/1.1" 400 -
+[servicio] POST /api/prediccion/demanda "POST /api/prediccion/demanda HTTP/1.1" 422 -
+[servicio] POST /otra "POST /otra HTTP/1.1" 404 -
