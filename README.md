@@ -30,7 +30,7 @@ sistema-polleria/
 |   |   |-- routes/         # Endpoints de la API
 |   |   `-- services/       # Email e impresion
 |   `-- uploads/            # Archivos subidos
-|-- polleria_db.sql         # Base de datos completa: estructura + datos de prueba
+|-- polleria_db.sql         # Respaldo de la base (NO se publica; lo entrega el equipo en privado)
 `-- LEER_ANTES_DE_INSTALAR.txt
 ```
 
@@ -59,6 +59,8 @@ npm install
 ```
 
 4. Crear la base de datos en MySQL importando el archivo `polleria_db.sql`.
+
+   > El archivo `polleria_db.sql` ya no se publica en este repositorio porque contiene datos personales (Ley N.° 29733). Pídelo al equipo por un canal privado.
 
 Ejemplo desde consola:
 
