@@ -1,6 +1,6 @@
 Elemento,Contrato APF2,Dataset APF3,Cambio / justificacion
 Variable objetivo,unidades_vendidas por producto y dia,"unidades_vendidas por producto y dia (top 12 productos, tipo_venta sumado)",Se suma tipo_venta (y se completan con 0 los dias sin ventas) para evitar filas casi vacias; el grano del contrato se conserva en el CSV
-Campos,"fecha, dia_semana, producto_id, producto, tipo_venta, unidades_vendidas, monto_vendido","fecha, dia_semana, producto_id, producto, tipo_venta, unidades_vendidas, monto_vendido, origen","Se agrega columna origen (real|simulado), exigida por la consigna"
+Campos,"fecha, dia_semana, producto_id, producto, tipo_venta, unidades_vendidas, monto_vendido","fecha, dia_semana, producto_id, producto, categoria, tipo_venta, unidades_vendidas, monto_vendido, origen","Se agregan origen (real|simulado), exigida por la consigna, y categoria (catalogo del MVP), para el analisis por categoria que el docente pidio para el dashboard"
 Fuente,ventas y detalle_ventas del MVP (vista vw_dataset_demanda_diaria),Respaldo polleria_db.sql del repositorio del MVP (misma estructura),Equivalente a la vista; permite reproducir el dataset desde el repositorio
 Volumen,Minimo de 100 filas y 4 semanas,"6,207 filas y 26 semanas (3,472 ventas completadas)",Se cumple el minimo; sin cambio
 Calidad,"Solo completadas; sin nombre, DNI, telefono ni direccion",Solo completadas; sin datos personales,Sin cambio

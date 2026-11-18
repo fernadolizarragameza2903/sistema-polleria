@@ -10,6 +10,7 @@ Notas
 - El respaldo guarda created_at en UTC; se convierte a hora de Lima (UTC-5).
 - Solo ventas completadas del 12/04/2026 al 11/10/2026 (periodo del contrato).
 - Sin nombre, DNI, telefono ni direccion de clientes (minimizacion, Ley 29733).
+- Se agrega la columna categoria (catalogo del MVP) para el analisis por categoria pedido por el docente para el dashboard.
 - Las ventas del MVP son datos de prueba simulados y autorizados por el docente:
   toda fila se rotula origen = 'simulado'.
 """
@@ -25,7 +26,7 @@ OUT_PATH = sys.argv[2] if len(sys.argv) > 2 else "data/dataset_demanda_diaria.cs
 sql = open(SQL_PATH, encoding="utf8").read()
 db = sqlite3.connect(":memory:")
 creadas = set()
-patron = r"INSERT INTO `(ventas|detalle_ventas|productos)` \(([^)]*)\) VALUES\n(.*?);\n"
+patron = r"INSERT INTO `(ventas|detalle_ventas|productos|categorias)` \(([^)]*)\) VALUES\n(.*?);\n"
 for tabla, cols, cuerpo in re.findall(patron, sql, re.S):
     cols = cols.replace("`", "")
     if tabla not in creadas:
@@ -36,7 +37,7 @@ for tabla, cols, cuerpo in re.findall(patron, sql, re.S):
 
 ventas = pd.read_sql("SELECT id, tipo_venta, estado, created_at FROM ventas", db)
 det = pd.read_sql("SELECT venta_id, producto_id, cantidad, subtotal FROM detalle_ventas", db)
-prod = pd.read_sql("SELECT id AS producto_id, nombre AS producto FROM productos", db)
+prod = pd.read_sql("SELECT p.id AS producto_id, p.nombre AS producto, c.nombre AS categoria FROM productos p LEFT JOIN categorias c ON c.id = p.categoria_id", db)
 # el respaldo trae los decimales entre comillas: se convierten a numero antes de sumar
 det["cantidad"] = pd.to_numeric(det["cantidad"])
 det["subtotal"] = pd.to_numeric(det["subtotal"])
@@ -53,14 +54,14 @@ x = det.merge(ok[["id", "fecha", "tipo_venta"]], left_on="venta_id", right_on="i
     prod, on="producto_id"
 )
 out = (
-    x.groupby(["fecha", "producto_id", "producto", "tipo_venta"], as_index=False)
+    x.groupby(["fecha", "producto_id", "producto", "categoria", "tipo_venta"], as_index=False)
     .agg(unidades_vendidas=("cantidad", "sum"), monto_vendido=("subtotal", "sum"))
 )
 # dia_semana segun el contrato de datos: 1 = domingo ... 7 = sabado
 out["dia_semana"] = (out["fecha"].dt.dayofweek + 1) % 7 + 1
 out["origen"] = "simulado"
 out["fecha"] = out["fecha"].dt.strftime("%Y-%m-%d")
-out = out[["fecha", "dia_semana", "producto_id", "producto", "tipo_venta",
+out = out[["fecha", "dia_semana", "producto_id", "producto", "categoria", "tipo_venta",
            "unidades_vendidas", "monto_vendido", "origen"]].sort_values(
     ["fecha", "producto_id", "tipo_venta"])
 out.to_csv(OUT_PATH, index=False, encoding="utf-8")
